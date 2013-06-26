@@ -148,7 +148,7 @@ public final class LuaFormatterModule extends AbstractMetaLuaModule {
 	 */
 	@Override
 	protected List<String> getMetaLuaSourcePaths() {
-		return Collections.emptyList();
+		return Collections.<String> emptyList();
 	}
 
 	@Override

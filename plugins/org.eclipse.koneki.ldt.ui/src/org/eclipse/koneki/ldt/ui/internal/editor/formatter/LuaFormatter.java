@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2011, 2013 Sierra Wireless and others.
+ * Copyright (c) 2011, 2012 Sierra Wireless and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -27,15 +27,17 @@ import org.eclipse.text.edits.ReplaceEdit;
 import org.eclipse.text.edits.TextEdit;
 
 public class LuaFormatter extends AbstractScriptFormatter {
+
 	static final String ID = "org.eclipse.koneki.ldt.formatter"; //$NON-NLS-1$
+
+	private static final LuaFormatterModule FORMAT_LUA_MODULE = new LuaFormatterModule();
+
 	private final TabStyle tabPolicy;
 	private final int tabSize;
 	private final int indentationSize;
 	private final String delimiter;
 	private final String tabulation;
 	private final boolean formatTableValues;
-
-	private final static LuaFormatterModule formatLuaModule = new LuaFormatterModule();
 
 	protected LuaFormatter(final String lineDelimiter, final Map<String, String> preferences) {
 		super(preferences);
@@ -80,10 +82,10 @@ public class LuaFormatter extends AbstractScriptFormatter {
 		final String formatted;
 		// With mixed white spaces
 		if (tabPolicy == TabStyle.MIXED) {
-			formatted = formatLuaModule.indent(source, delimiter, formatTableValues, tabSize, indentationSize);
+			formatted = FORMAT_LUA_MODULE.indent(source, delimiter, formatTableValues, tabSize, indentationSize);
 		} else {
 			// With one type of tabulation
-			formatted = formatLuaModule.indent(source, delimiter, formatTableValues, tabulation);
+			formatted = FORMAT_LUA_MODULE.indent(source, delimiter, formatTableValues, tabulation);
 		}
 		if (length < source.length()) {
 			final Document doc = new Document(source);

@@ -17,8 +17,7 @@
 --------------------------------------------------------------------------------
 local M = {}
 require 'metalua.package'
-local compiler = require 'metalua.compiler'
-local mlc  = compiler.new()
+local mlc = require 'metalua.compiler'.new()
 local math = require 'math'
 
 --
@@ -29,10 +28,21 @@ local walker = {
 	depth = 0,     -- Current depth while walking
 	expr  = {},
 	stat  = {},
-	linetodepth = {0},
+	linetodepth = { 0 },
 	indenttable = true,
 	source = "",
-	formatter = { down = {} , up = {} }
+	formatters = {},
+}
+
+---
+-- @type DEPTH
+-- @field DIVE
+-- @field LAST
+-- @field STILL
+local DEPTH = {
+  DIVE  = '>',
+  LAST  = '.',
+  STILL = '|',
 }
 
 ---
@@ -53,24 +63,18 @@ local function makefakenode(node)
 	}
 end
 
-function walker.block.down(node, parent,...)
-	--ignore empty node
-	if #node > 0 then
-		local fakenode = makefakenode(node)
-		walker.indentlist(fakenode)
-	end
-end
-
-function walker.block.up(node, ...)
-	if #node == 0 then
-		return end
-	walker.depth = walker.depth - 1
+function walker.block.down(node, ...)
+  -- Ignore empty node
+  if #node == 0 then
+    return
+  end
+  walker.processchunk(node)
 end
 
 function walker.expr.down(node, parent, ...)
 	if walker.indenttable and node.tag == 'Table' and #node > 0 then
 		local fakenode = makefakenode(node)
-		walker.indentlist(fakenode)
+		walker.processchunk(node)
 	elseif node.tag =='String' then
 		local firstline = node.lineinfo.first.line
 		local lastline = node.lineinfo.last.line
@@ -80,21 +84,10 @@ function walker.expr.down(node, parent, ...)
 	end
 end
 
-function walker.expr.up(node, parent, ...)
-	if walker.indenttable and node.tag == 'Table' then
-		if #node == 0 then
-			return end
-		walker.depth = walker.depth - 1
-	end
-end
-
-function walker.stat.down(node)
-	local downs = walker.formatter.down
-	if downs[node.tag] then downs[node.tag](node) end
-end
 function walker.stat.up(node)
-	local ups = walker.formatter.up
-	if ups[node.tag] then ups[node.tag](node) end
+  if walker.formatters[node.tag] then
+    walker.formatters[node.tag](node)
+  end
 end
 
 ---
@@ -102,20 +95,19 @@ end
 --
 -- @return #int, #int
 function walker.getfirstline(node)
-	-- Regular node
-	local offsets = node.lineinfo
-	local first
-	local offset
-	-- Consider previous comments as part of current chunk
-	-- WARNING: This is NOT the default in Metalua
-	if offsets.first.comments then
-		first = offsets.first.comments.lineinfo.first.line
-		offset = offsets.first.comments.lineinfo.first.offset
-	else
-		first = offsets.first.line
-		offset = offsets.first.offset
-	end
-	return first, offset
+  -- Consider preceding comments as part of current chunk
+  -- WARNING: This is NOT the default in Metalua
+  local first, offset
+  local offsets = node.lineinfo
+  if offsets.first.comments then
+    first = offsets.first.comments.lineinfo.first.line
+    offset = offsets.first.comments.lineinfo.first.offset
+  else
+    -- Regular node
+    first = offsets.first.line
+    offset = offsets.first.offset
+  end
+  return first, offset
 end
 
 ---
@@ -123,105 +115,81 @@ end
 --
 -- @return #int
 function walker.getlastline(node)
-	return node.lineinfo.last.line
+  return node.lineinfo.last.line
 end
 
 ---
--- Will store current depth to all lines covered by given node.
--- 
--- Depth storage will start a line later when node does not start with a new
--- line. When depth is modified, depth is increased once.
--- 
--- @return #boolean If any depth has been stored
-function walker.indentlist(node)
-
-	-- Choosing on which line to start
-	local startline, startindex = walker.getfirstline(node)
-	local endline = walker.getlastline(node)
-	if not walker.source:sub(1,startindex-1):find("[\r\n]%s*$") then
-		startline = startline + 1
-	end
-
-	-- Storing current depth
-	for i=startline, endline do
-		walker.linetodepth[i] = walker.depth
-	end
-
-	-- Increase depth accordingly
-	if startline <= endline then
-		walker.depth = walker.depth + 1
-		return true
-	end
-	return false
+-- Initialize all lines of chunk to DEPTH.STILL, so indentation will not move.
+function walker.processchunk(node)
+  local startline, startindex = walker.getfirstline(node[1])
+  local endline = walker.getlastline(node[#node])
+  for line=startline, endline do
+    if not walker.linetodepth[line] then
+      walker.linetodepth[line] = DEPTH.STILL
+    end
+  end
 end
 
 ---
--- Will decrease current depth,
---
--- Starting a line later when node does not start with a new line.
---
--- @return #boolean If any depth has been stored
-function walker.unindentlist(node)
-	local startline, startindex = walker.getfirstline(node)
-	local endline = walker.getlastline(node)
-	if not walker.source:sub(1,startindex-1):find("[\r\n]%s*$") then
-		startline = startline + 1
-	end
-	if startline <= endline then
-		walker.depth = walker.depth - 1
-		return true
-	end
-	return false
+-- Indent all lines of a chunk, must be called after #walker.processchunk
+function walker.indentchunk(node)
+
+  -- Get node position
+  local startline, startindex = walker.getfirstline(node)
+  local endline = walker.getlastline(node[#node])
+
+  if endline <= startline then
+    -- Nothing interesting to do
+    return
+  end
+
+  -- Indent all lines following the first one
+  walker.linetodepth[startline] = DEPTH.DIVE
+  -- Restore previous depth
+  walker.linetodepth[endline] = startline
 end
 
-function walker.endonsameline(node, anothernode)
-	return node.lineinfo.last.line == anothernode.lineinfo.last.line
+function walker.formatters.Do(node)
+  if #node > 0 then
+    walker.indentchunk(node)
+  end
 end
-
-function walker.formatter.down.Local(node)
-	-- Indent Left Hand Side
-	local lhs, exprs = unpack(node)
-	local lhsindented = walker.indentlist(lhs)
-	if #exprs > 0 then
-		local first, last = walker.getlastline(lhs)+1,walker.getfirstline(exprs)
-		for line = first,last do
-			walker.linetodepth[line] = walker.depth
-		end
-		walker.indentlist(exprs)
-	end
-end
-function walker.formatter.up.Local(node)
-	-- Unindent Left Hand Side
-	local lhs, exprs = unpack(node)
-	walker.unindentlist(lhs)
-
-	-- Unindent initialization expressions when needed
-	if #exprs > 0 then
-		walker.unindentlist(exprs)
-	end
-end
-
-walker.formatter.up.Set   = walker.formatter.up.Local
-walker.formatter.down.Set = walker.formatter.down.Local
-
 --------------------------------------------------------------------------------
 -- Calculate all indent level
 -- @param Source code to analyze
--- @return #table {linenumber = identationlevel}
+-- @return #table {linenumber = indentationlevel}
 -- @usage local depth = format.indentLevel("local var")
 --------------------------------------------------------------------------------
 local function getindentlevel(source, indenttable)
 
-	-- Walk through AST to build linetodepth
-	local ast = mlc:src_to_ast(source)
-	if compiler.check_ast( ast ) then
-		local walk = require 'metalua.walk'
-		walker.linetodepth = {0}
-		walker.indenttable = indenttable
-		walker.source = source
-		walk.block(walker, ast)
-	end
-	return walker.linetodepth
+  if not loadstring(source, 'CheckingFormatterSource') then
+    return
+  end
+
+  -- Walk through AST to build linetodepth
+  local walk = require 'metalua.walk'
+  walker.linetodepth = { 0 }
+  walker.indenttable = indenttable
+  walker.source = source
+  walker.nodecache = {}
+  walk.block(walker, mlc:src_to_ast(source))
+  local t = {}
+  local currentdepth = 0
+  --  table.print(walker.linetodepth, 1)
+
+  for line, depth in ipairs(walker.linetodepth) do
+    t[line] = currentdepth
+    if depth == DEPTH.LAST then
+      currentdepth = currentdepth - 1
+    elseif depth == DEPTH.DIVE then
+      currentdepth = currentdepth + 1
+    elseif type(depth) == 'number' and depth > 0 then
+      currentdepth = t[depth]
+    end
+  end
+
+  --  table.print(t, 1)
+  return t
 end
 
 --------------------------------------------------------------------------------
@@ -242,10 +210,12 @@ end
 
 --------------------------------------------------------------------------------
 -- Indent Lua Source Code.
+--
 -- @function [parent=#luaformatter] indentcode
 -- @param source source code to format
 -- @param delimiter line delimiter to use
--- @param indenttable true if you want to ident in table
+-- @param indenttable true if you want to indent in table
+-- @param ...
 -- @return #string formatted code
 -- @usage indentCode('local var', '\n', true, '\t',)
 -- @usage indentCode('local var', '\n', true, --[[tabulationSize]]4, --[[indentationSize]]2)
@@ -276,7 +246,7 @@ function M.indentcode(source, delimiter,indenttable, ...)
 	end
 
 	-- Delimiter position table
-	-- Initialisation represent string start offset
+	-- Initialization represent string start offset
 	local delimiterLength = delimiter:len()
 	local positions = {1-delimiterLength}
 
@@ -292,7 +262,7 @@ function M.indentcode(source, delimiter,indenttable, ...)
 			i = delimiterPosition + 1
 		end
 	until not delimiterPosition
-	-- No need for indentation, while no delimiters has been found
+	-- No need for indentation, while no delimiter has been found
 	if #positions < 2 then
 		return source
 	end
@@ -300,7 +270,7 @@ function M.indentcode(source, delimiter,indenttable, ...)
 	-- calculate indentation
 	local linetodepth = getindentlevel(source,indenttable)
 
-	-- Concatenate string with right identation
+	-- Concatenate string with right indentation
 	local indented = {}
 	for  position=1, #positions do
 		-- Extract source code line
@@ -310,7 +280,7 @@ function M.indentcode(source, delimiter,indenttable, ...)
 		if positions[position + 1] then
 			rawline = source:sub(offset + delimiterLength, positions[position + 1] -1)
 		else
-			-- From current prosition to end of line
+			-- From current position to end of line
 			rawline = source:sub(offset + delimiterLength)
 		end
 

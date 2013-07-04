@@ -11,8 +11,7 @@
 --------------------------------------------------------------------------------
 
 require 'metalua.package'
-local compiler = require 'metalua.compiler'
-local mlc = compiler.new()
+local mlc = require 'metalua.compiler'.new()
 
 local javamodelfactory = require 'javamodelfactory'
 
@@ -38,7 +37,7 @@ function M.build(source)
 		line = line and tonumber(line)-1 or 0
 		
 		-- TODO ECLIPSE 411238
-		-- we must calculate offset because DLTK does not support 'line' positionning
+		-- we must calculate offset because DLTK does not support 'line' positioning
 		local _, endoffset = string.find(source,string.rep("[^\n]*\n",line))
 		
 		-- calculate the start of some errors

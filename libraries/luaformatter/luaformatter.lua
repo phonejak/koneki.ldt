@@ -32,56 +32,30 @@ local walker = {
 	indenttable = true,
 	source = "",
 	formatters = {},
+	indentation = {},
+	reference = {}
 }
 
----
--- @type DEPTH
--- @field DIVE
--- @field LAST
--- @field STILL
-local DEPTH = {
-  DIVE  = '>',
-  LAST  = '.',
-  STILL = '|',
-}
+local INDENT = true
 
----
--- Generates an empty node, its lineinfo field is composed of
--- * first: lineinfo.first of first child node
--- * last:  lineinfo.last of last child node
---
--- Useful for dealing with `Table and chunks.
--- @return #table
-local function makefakenode(node)
-	local firstli = node[1].lineinfo.first
-	return {
-		tag = 'FakeNode',
-		lineinfo = {
-			first = firstli.comments and firstli.comments.first or firstli,
-			last  = node[#node].lineinfo.last
-		}
-	}
-end
-
-function walker.block.down(node, ...)
+function walker.block.down(node, parent, ...)
   -- Ignore empty node
-  if #node == 0 then
+  if #node == 0 or not parent then
     return
   end
-  walker.processchunk(node)
+  walker.indentchunk(node, parent)
 end
 
 function walker.expr.down(node, parent, ...)
-	if walker.indenttable and node.tag == 'Table' and #node > 0 then
-		local fakenode = makefakenode(node)
-		walker.processchunk(node)
-	elseif node.tag =='String' then
-		local firstline = node.lineinfo.first.line
-		local lastline = node.lineinfo.last.line
-		for i=firstline+1, lastline do
-			walker.linetodepth[i]=false
-		end
-	end
+  if walker.indenttable and node.tag == 'Table' and #node > 0 then
+  --TODO
+  elseif node.tag =='String' then
+    local firstline = node.lineinfo.first.line
+    local lastline = node.lineinfo.last.line
+    for i=firstline+1, lastline do
+      walker.linetodepth[i]=false
+    end
+  end
 end
 
 function walker.stat.up(node)
@@ -118,41 +92,59 @@ function walker.getlastline(node)
   return node.lineinfo.last.line
 end
 
----
--- Initialize all lines of chunk to DEPTH.STILL, so indentation will not move.
-function walker.processchunk(node)
-  local startline, startindex = walker.getfirstline(node[1])
-  local endline = walker.getlastline(node[#node])
-  for line=startline, endline do
-    if not walker.linetodepth[line] then
-      walker.linetodepth[line] = DEPTH.STILL
-    end
+function walker.indent(startline, startindex, endline, parent)
+
+  -- Indent following lines when current one does not start with first statement
+  -- of current block.
+  if not walker.source:sub(1,startindex-1):find("[\r\n]%s*$") then
+    startline = startline + 1
   end
-end
 
----
--- Indent all lines of a chunk, must be called after #walker.processchunk
-function walker.indentchunk(node)
-
-  -- Get node position
-  local startline, startindex = walker.getfirstline(node)
-  local endline = walker.getlastline(node[#node])
-
-  if endline <= startline then
-    -- Nothing interesting to do
+  -- Nothing interesting to do
+  if endline < startline then
     return
   end
 
-  -- Indent all lines following the first one
-  walker.linetodepth[startline] = DEPTH.DIVE
-  -- Restore previous depth
-  walker.linetodepth[endline] = startline
+  -- Indent block first line
+  walker.indentation[startline] = INDENT
+  -- Restore indentation
+  walker.reference[endline+1] = walker.getfirstline(parent)
+
 end
 
-function walker.formatters.Do(node)
-  if #node > 0 then
-    walker.indentchunk(node)
+---
+-- Indent all lines of a chunk.
+function walker.indentchunk(node, parent)
+  -- Get node positions
+  local endline = walker.getlastline(node[#node])
+  local startline, startindex = walker.getfirstline(node[1])
+  walker.indent(startline, startindex, endline, parent)
+end
+
+---
+-- Indent all lines of an expression list.
+function walker.indentexprlist(node, parent)
+  local endline = walker.getlastline(node)
+  local startline, startindex = walker.getfirstline(node)
+  walker.indent(startline, startindex, endline, parent)
+end
+
+function walker.formatters.Local(node)
+  local lhs, exprs  = unpack(node)
+  walker.indentexprlist(lhs, node)
+  if #exprs > 0 then
+    walker.indentexprlist(exprs, node)
   end
+end
+
+function walker.formatters.Repeat(node)
+  local _, expr  = unpack(node)
+  walker.indentexprlist(expr, node)
+end
+
+function walker.formatters.While(node)
+  local expr, _ = unpack(node)
+  walker.indentexprlist(expr, node)
 end
 --------------------------------------------------------------------------------
 -- Calculate all indent level
@@ -168,28 +160,28 @@ local function getindentlevel(source, indenttable)
 
   -- Walk through AST to build linetodepth
   local walk = require 'metalua.walk'
+  local ast = mlc:src_to_ast(source)
   walker.linetodepth = { 0 }
   walker.indenttable = indenttable
   walker.source = source
   walker.nodecache = {}
-  walk.block(walker, mlc:src_to_ast(source))
-  local t = {}
+  walk.block(walker, ast)
+
+  -- Built depth table
   local currentdepth = 0
-  --  table.print(walker.linetodepth, 1)
-
-  for line, depth in ipairs(walker.linetodepth) do
-    t[line] = currentdepth
-    if depth == DEPTH.LAST then
-      currentdepth = currentdepth - 1
-    elseif depth == DEPTH.DIVE then
-      currentdepth = currentdepth + 1
-    elseif type(depth) == 'number' and depth > 0 then
-      currentdepth = t[depth]
+  local depthtable = {}
+  for line=1, walker.getlastline(ast[#ast]) do
+    -- Restore depth
+    if walker.reference[line] then
+      currentdepth = depthtable[walker.reference[line]]
     end
+    -- Indent
+    if walker.indentation[line] then
+      currentdepth = currentdepth + 1
+    end
+    depthtable[line]= currentdepth
   end
-
-  --  table.print(t, 1)
-  return t
+  return depthtable
 end
 
 --------------------------------------------------------------------------------

@@ -107,9 +107,9 @@ function walker.indent(startline, startindex, endline, parent)
 
   -- Indent block first line
   walker.indentation[startline] = INDENT
+
   -- Restore indentation
   walker.reference[endline+1] = walker.getfirstline(parent)
-
 end
 
 ---
@@ -122,6 +122,22 @@ function walker.indentchunk(node, parent)
 end
 
 ---
+-- Indent all lines of an `Index which can be recursive.
+function walker.indentindex(node, parent)
+
+  -- Indent left side
+  local left, right = unpack(node)
+  if left.tag == 'Index' then
+  	walker.indentindex(left, parent)
+  end
+  
+  -- Indent right side once
+  local startline = walker.getfirstline(right)
+  local startindex = right.lineinfo.last.offset
+  walker.indent(startline, startindex, walker.getlastline(parent), parent)
+end
+
+---
 -- Indent all lines of an expression list.
 function walker.indentexprlist(node, parent)
   local endline = walker.getlastline(node)
@@ -129,13 +145,36 @@ function walker.indentexprlist(node, parent)
   walker.indent(startline, startindex, endline, parent)
 end
 
+function walker.formatters.Invoke(node)
+
+  -- Check if indentation is needed on left side
+  local id, str = unpack(node)
+  if id.tag == 'Index' then
+    walker.indentindex(id, node)
+  end
+
+  -- Regular case: only indent after left side
+  local startline = walker.getfirstline(id)
+  local startindex = id.lineinfo.last.offset
+  walker.indent(startline, startindex, walker.getlastline(str), node)
+end
+
 function walker.formatters.Local(node)
   local lhs, exprs  = unpack(node)
-  walker.indentexprlist(lhs, node)
-  if #exprs > 0 then
+  if #exprs == 0 then
+    -- Regular handling
+    walker.indentexprlist(lhs, node)
+  else
+    -- Indent LHS and expressions like a single chunk
+    local endline = walker.getlastline(exprs)
+    local startline, startindex = walker.getfirstline(lhs)
+    walker.indent(startline, startindex, endline, node)
+
+    -- In this block indent expressions one more
     walker.indentexprlist(exprs, node)
   end
 end
+walker.formatters.Set = walker.formatters.Local
 
 function walker.formatters.Repeat(node)
   local _, expr  = unpack(node)

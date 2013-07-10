@@ -145,6 +145,24 @@ function walker.indentexprlist(node, parent)
   walker.indent(startline, startindex, endline, parent)
 end
 
+function walker.formatters.Forin(node)
+  local ids, iterator, _ = unpack(node)
+  walker.indentexprlist(ids, node)
+  walker.indentexprlist(iterator, node)
+end
+
+function walker.formatters.Fornum(node)
+
+  -- Format from variable name to last expressions
+  local var, init, limit, range = unpack(node)
+  local startline, startindex   = walker.getfirstline(var)
+
+  -- Take range as last expression, when not available limit will do
+  local lastexpr = range.tag and range or limit
+  walker.indent(startline, startindex, walker.getlastline(lastexpr), node)
+
+end
+
 function walker.formatters.If(node)
 
   -- Indent only conditions, chunks are already taken care of.

@@ -58,9 +58,9 @@ function walker.expr.down(node, parent, ...)
   end
 end
 
-function walker.stat.up(node)
+function walker.stat.up(node, ...)
   if walker.formatters[node.tag] then
-    walker.formatters[node.tag](node)
+    walker.formatters[node.tag](node, ...)
   end
 end
 
@@ -206,8 +206,14 @@ end
 walker.formatters.Set = walker.formatters.Local
 
 function walker.formatters.Repeat(node)
-  local _, expr  = unpack(node)
+  local _, expr = unpack(node)
   walker.indentexprlist(expr, node)
+end
+
+function walker.formatters.Return(node, parent)
+  if #node > 0 then
+    walker.indentchunk(node, parent)
+  end
 end
 
 function walker.formatters.While(node)

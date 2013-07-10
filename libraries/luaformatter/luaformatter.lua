@@ -145,11 +145,22 @@ function walker.indentexprlist(node, parent)
   walker.indent(startline, startindex, endline, parent)
 end
 
+function walker.formatters.If(node)
+
+  -- Indent only conditions, chunks are already taken care of.
+  local nodesize = #node
+  for conditionposition=1, nodesize-(nodesize%2), 2 do
+    walker.indentexprlist(node[conditionposition], node)
+  end
+
+end
+
 function walker.formatters.Invoke(node)
 
   -- Check if indentation is needed on left side
   local id, str = unpack(node)
   if id.tag == 'Index' then
+    -- TODO: All `Index should be indented. This specific call has to move.
     walker.indentindex(id, node)
   end
 
@@ -160,7 +171,7 @@ function walker.formatters.Invoke(node)
 end
 
 function walker.formatters.Local(node)
-  local lhs, exprs  = unpack(node)
+  local lhs, exprs = unpack(node)
   if #exprs == 0 then
     -- Regular handling
     walker.indentexprlist(lhs, node)

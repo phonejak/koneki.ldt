@@ -46,19 +46,13 @@ function walker.block.down(node, parent, ...)
   walker.indentchunk(node, parent)
 end
 
-function walker.expr.down(node, parent, ...)
-  if walker.indenttable and node.tag == 'Table' and #node > 0 then
-  --TODO
-  elseif node.tag =='String' then
-    local firstline = node.lineinfo.first.line
-    local lastline = node.lineinfo.last.line
-    for i=firstline+1, lastline do
-      walker.linetodepth[i]=false
-    end
+function walker.expr.down(node, ...)
+  if walker.formatters[node.tag] then
+    walker.formatters[node.tag](node, ...)
   end
 end
 
-function walker.stat.up(node, ...)
+function walker.stat.down(node, ...)
   if walker.formatters[node.tag] then
     walker.formatters[node.tag](node, ...)
   end
@@ -122,22 +116,6 @@ function walker.indentchunk(node, parent)
 end
 
 ---
--- Indent all lines of an `Index which can be recursive.
-function walker.indentindex(node, parent)
-
-  -- Indent left side
-  local left, right = unpack(node)
-  if left.tag == 'Index' then
-  	walker.indentindex(left, parent)
-  end
-  
-  -- Indent right side once
-  local startline = walker.getfirstline(right)
-  local startindex = right.lineinfo.last.offset
-  walker.indent(startline, startindex, walker.getlastline(parent), parent)
-end
-
----
 -- Indent all lines of an expression list.
 function walker.indentexprlist(node, parent)
   local endline = walker.getlastline(node)
@@ -145,6 +123,27 @@ function walker.indentexprlist(node, parent)
   walker.indent(startline, startindex, endline, parent)
 end
 
+--------------------------------------------------------------------------------
+-- Expressions formatters
+--------------------------------------------------------------------------------
+function walker.formatters.String(node)
+  local firstline, _ = walker.getfirstline(node)
+  local lastline = walker.getlastline(node)
+  for line=firstline+1, lastline do
+    walker.indentation[line]=false
+  end
+end
+
+function walker.formatters.Table(node, parent)
+  if #node > 0 then
+    -- Will work when BUG_ECLIPSE 414787 will be fixed
+    walker.indentchunk(node, parent)
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Statements formatters
+--------------------------------------------------------------------------------
 function walker.formatters.Forin(node)
   local ids, iterator, _ = unpack(node)
   walker.indentexprlist(ids, node)
@@ -152,7 +151,6 @@ function walker.formatters.Forin(node)
 end
 
 function walker.formatters.Fornum(node)
-
   -- Format from variable name to last expressions
   local var, init, limit, range = unpack(node)
   local startline, startindex   = walker.getfirstline(var)
@@ -160,32 +158,38 @@ function walker.formatters.Fornum(node)
   -- Take range as last expression, when not available limit will do
   local lastexpr = range.tag and range or limit
   walker.indent(startline, startindex, walker.getlastline(lastexpr), node)
+end
 
+function walker.formatters.Function(node)
+  local params, chunk = unpack(node)
+  walker.indentexprlist(params,node)
 end
 
 function walker.formatters.If(node)
-
   -- Indent only conditions, chunks are already taken care of.
   local nodesize = #node
   for conditionposition=1, nodesize-(nodesize%2), 2 do
     walker.indentexprlist(node[conditionposition], node)
   end
-
 end
 
-function walker.formatters.Invoke(node)
+function walker.formatters.Invoke(node, parent)
+  -- When invocation spreads across several lines
+  local startline, startindex = walker.getfirstline(node)
+  local lastline = walker.getlastline(node)
 
-  -- Check if indentation is needed on left side
-  local id, str = unpack(node)
-  if id.tag == 'Index' then
-    -- TODO: All `Index should be indented. This specific call has to move.
-    walker.indentindex(id, node)
+  -- Indent, starting from second line
+  if startline < lastline then
+    walker.indent(startline + 1, startindex, lastline, parent)
   end
+end
 
-  -- Regular case: only indent after left side
-  local startline = walker.getfirstline(id)
-  local startindex = id.lineinfo.last.offset
-  walker.indent(startline, startindex, walker.getlastline(str), node)
+function walker.formatters.Localrec(node)
+  -- Indent function name
+  local ids, _ = unpack(node)
+  if walker.getfirstline(node) < walker.getfirstline(ids) then
+    walker.indentexprlist(ids, node)
+  end
 end
 
 function walker.formatters.Local(node)
@@ -220,6 +224,7 @@ function walker.formatters.While(node)
   local expr, _ = unpack(node)
   walker.indentexprlist(expr, node)
 end
+
 --------------------------------------------------------------------------------
 -- Calculate all indent level
 -- @param Source code to analyze
@@ -232,28 +237,35 @@ local function getindentlevel(source, indenttable)
     return
   end
 
-  -- Walk through AST to build linetodepth
+  -- Walk through AST
   local walk = require 'metalua.walk'
   local ast = mlc:src_to_ast(source)
-  walker.linetodepth = { 0 }
   walker.indenttable = indenttable
   walker.source = source
-  walker.nodecache = {}
   walk.block(walker, ast)
 
   -- Built depth table
   local currentdepth = 0
   local depthtable = {}
   for line=1, walker.getlastline(ast[#ast]) do
+
     -- Restore depth
     if walker.reference[line] then
       currentdepth = depthtable[walker.reference[line]]
     end
+
     -- Indent
     if walker.indentation[line] then
       currentdepth = currentdepth + 1
+      depthtable[line] = currentdepth
+    elseif walker.indentation[line] == false then
+      -- Ignore any kind of indentation
+      depthtable[line] = false
+    else
+      -- Use current indentation
+      depthtable[line] = currentdepth
     end
-    depthtable[line]= currentdepth
+
   end
   return depthtable
 end

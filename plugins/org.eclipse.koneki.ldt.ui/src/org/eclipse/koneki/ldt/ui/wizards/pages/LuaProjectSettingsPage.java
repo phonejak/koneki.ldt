@@ -79,7 +79,15 @@ public class LuaProjectSettingsPage extends ProjectWizardFirstPage implements Ob
 		return null;
 	}
 
+	@Deprecated
 	public boolean hasToCreateMain() {
+		return luaExecutionEnvironmentGroup != null && luaExecutionEnvironmentGroup.hasToCreateMain();
+	}
+
+	/**
+	 * @since 1.1
+	 */
+	public boolean hasToCreateTemplate() {
 		return luaExecutionEnvironmentGroup != null && luaExecutionEnvironmentGroup.hasToCreateMain();
 	}
 

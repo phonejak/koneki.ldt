@@ -170,12 +170,22 @@ public final class LuaExecutionEnvironmentManager {
 			version = matcher.group(1);
 		}
 
+		/*
+		 * Match available templateBuildPathEntries
+		 */
+		String[] templateEntries = null;
+		namePattern = Pattern.compile("(?:^|\\s+)templateEntries\\s*=\\s*(?:[\"']|\\[*)([\\w,]+)"); //$NON-NLS-1$
+		matcher = namePattern.matcher(manifestString);
+		if (matcher.find() && matcher.groupCount() > 0) {
+			templateEntries = matcher.group(1).split(","); //$NON-NLS-1$
+		}
+
 		// Create object representing a valid Execution Environment
 		if (name == null || version == null) {
 			throwException("Manifest from given file has no package name or version.", null, IStatus.ERROR); //$NON-NLS-1$
 		}
 
-		return new LuaExecutionEnvironment(name, version, installDirectory);
+		return new LuaExecutionEnvironment(name, version, installDirectory, templateEntries);
 	}
 
 	private static LuaExecutionEnvironment getExecutionEnvironmentFromContribution(IConfigurationElement contribution) throws CoreException {

@@ -17,25 +17,27 @@ public class LuaExecutionEnvironment implements Comparable<LuaExecutionEnvironme
 	private final String id;
 	private final String version;
 	private final IPath path;
-	private final IPath main;
+	private final IPath template;
 	private boolean embedded;
+	private String[] templateBuildPathEntries;
 
-	public LuaExecutionEnvironment(final String identifier, final String eeversion, final IPath pathToEE) {
+	public LuaExecutionEnvironment(final String identifier, final String eeversion, final IPath pathToEE, String[] templateEntries) {
 		id = identifier;
 		version = eeversion;
 		path = pathToEE;
 		embedded = false;
+		templateBuildPathEntries = templateEntries;
 
-		// Create path to main.lua
-		IPath mainPath = null;
+		// Create path to template
+		IPath templatePath = null;
 		if (pathToEE != null)
-			mainPath = pathToEE.append(LuaExecutionEnvironmentConstants.EE_FILE_MAIN);
+			templatePath = pathToEE.append(LuaExecutionEnvironmentConstants.EE_TEMPLATE_FOLDER);
 
-		// Keep it if main file really exists
-		if (mainPath != null && mainPath.toFile().exists())
-			main = mainPath;
+		// Keep it if template file really exists
+		if (templatePath != null && templatePath.toFile().exists())
+			template = templatePath;
 		else
-			main = null;
+			template = null;
 	}
 
 	protected void setEmbedded(final boolean embeddedEE) {
@@ -123,8 +125,12 @@ public class LuaExecutionEnvironment implements Comparable<LuaExecutionEnvironme
 		return getEEIdentifier().compareTo(ee.getEEIdentifier());
 	}
 
-	public IPath getMainPath() {
-		return main;
+	public IPath getTemplatePath() {
+		return template;
+	}
+
+	public String[] getTemplateBuildPathEntries() {
+		return templateBuildPathEntries;
 	}
 
 }

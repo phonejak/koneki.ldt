@@ -99,6 +99,7 @@ public class LuaProjectWizard extends GenericDLTKProjectWizard {
 		boolean superResult = super.performFinish();
 
 		// Open main file of the created project in a editor
+		// TODO open the good file according to the EE template
 		IPath mainFilePath = new Path(LuaConstants.SOURCE_FOLDER).append(LuaConstants.DEFAULT_MAIN_FILE);
 		IFile mainFile = getProject().getFile(mainFilePath);
 		if (mainFile.exists()) {

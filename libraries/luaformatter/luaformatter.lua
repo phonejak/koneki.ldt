@@ -24,16 +24,17 @@ local math = require 'math'
 -- Define AST walker
 --
 local walker = {
-	block = {},
-	depth = 0,     -- Current depth while walking
-	expr  = {},
-	stat  = {},
-	linetodepth = { 0 },
-	indenttable = true,
-	source = "",
-	formatters = {},
-	indentation = {},
-	reference = {}
+  block = {},
+  expr  = {},
+  stat  = {},
+  indenttable = true,
+  source = "",
+  formatters = {},
+  -- Indentations line number
+  indentation = {},
+  -- Key:   Line number to indent back.
+  -- Value: Previous line number, it has the indentation depth wanted.
+  reference = {}
 }
 
 local INDENT = true
@@ -162,7 +163,7 @@ end
 
 function walker.formatters.Function(node)
   local params, chunk = unpack(node)
-  walker.indentexprlist(params,node)
+  walker.indentexprlist(params, node)
 end
 
 function walker.formatters.If(node)
@@ -184,26 +185,20 @@ function walker.formatters.Invoke(node, parent)
   end
 end
 
-function walker.formatters.Localrec(node)
-  -- Indent function name
-  local ids, _ = unpack(node)
-  if walker.getfirstline(node) < walker.getfirstline(ids) then
-    walker.indentexprlist(ids, node)
-  end
-end
-
 function walker.formatters.Local(node)
   local lhs, exprs = unpack(node)
   if #exprs == 0 then
     -- Regular handling
     walker.indentexprlist(lhs, node)
-  else
-    -- Indent LHS and expressions like a single chunk
+  elseif exprs[1].tag ~= 'Function' then
+
+    -- Avoid problems and format functions later.
+    -- Else way, indent LHS and expressions like a single chunk.
     local endline = walker.getlastline(exprs)
     local startline, startindex = walker.getfirstline(lhs)
     walker.indent(startline, startindex, endline, node)
 
-    -- In this block indent expressions one more
+    -- In this chunk indent expressions one more.
     walker.indentexprlist(exprs, node)
   end
 end
@@ -278,12 +273,12 @@ end
 -- @return #string string trimmed
 --------------------------------------------------------------------------------
 local function trim(string)
-	local pattern = "^(%s*)(.*)"
-	local _, strip =  string:match(pattern)
-	if not strip then return string end
-	local restrip
-	_, restrip = strip:reverse():match(pattern)
-	return restrip and restrip:reverse() or strip
+  local pattern = "^(%s*)(.*)"
+  local _, strip =  string:match(pattern)
+  if not strip then return string end
+  local restrip
+  _, restrip = strip:reverse():match(pattern)
+  return restrip and restrip:reverse() or strip
 end
 
 --------------------------------------------------------------------------------
@@ -299,97 +294,97 @@ end
 -- @usage indentCode('local var', '\n', true, --[[tabulationSize]]4, --[[indentationSize]]2)
 --------------------------------------------------------------------------------
 function M.indentcode(source, delimiter,indenttable, ...)
-	--
-	-- Create function which will generate indentation
-	--
-	local tabulation
-	if select('#', ...) > 1 then
-		local tabSize = select(1, ...)
-		local indentationSize = select(2, ...)
-		-- When tabulation size and indentation size is given, tabulation is
-		-- composed of tabulation and spaces
-		tabulation = function(depth)
-			local range = depth * indentationSize
-			local tabCount = math.floor(range / tabSize)
-			local spaceCount = range % tabSize
-			local tab = '\t'
-			local space = ' '
-			return tab:rep(tabCount) .. space:rep(spaceCount)
-		end
-	else
-		local char = select(1, ...)
-		-- When tabulation character is given, this character will be duplicated
-		-- according to length
-		tabulation = function (depth) return char:rep(depth) end
-	end
+  --
+  -- Create function which will generate indentation
+  --
+  local tabulation
+  if select('#', ...) > 1 then
+    local tabSize = select(1, ...)
+    local indentationSize = select(2, ...)
+    -- When tabulation size and indentation size is given, tabulation is
+    -- composed of tabulation and spaces
+    tabulation = function(depth)
+      local range = depth * indentationSize
+      local tabCount = math.floor(range / tabSize)
+      local spaceCount = range % tabSize
+      local tab = '\t'
+      local space = ' '
+      return tab:rep(tabCount) .. space:rep(spaceCount)
+    end
+  else
+    local char = select(1, ...)
+    -- When tabulation character is given, this character will be duplicated
+    -- according to length
+    tabulation = function (depth) return char:rep(depth) end
+  end
 
-	-- Delimiter position table
-	-- Initialization represent string start offset
-	local delimiterLength = delimiter:len()
-	local positions = {1-delimiterLength}
+  -- Delimiter position table
+  -- Initialization represent string start offset
+  local delimiterLength = delimiter:len()
+  local positions = {1-delimiterLength}
 
-	--
-	-- Seek for delimiters
-	--
-	local i = 1
-	local delimiterPosition = nil
-	repeat
-		delimiterPosition = source:find(delimiter, i, true)
-		if delimiterPosition then
-			positions[#positions + 1] = delimiterPosition
-			i = delimiterPosition + 1
-		end
-	until not delimiterPosition
-	-- No need for indentation, while no delimiter has been found
-	if #positions < 2 then
-		return source
-	end
+  --
+  -- Seek for delimiters
+  --
+  local i = 1
+  local delimiterPosition = nil
+  repeat
+    delimiterPosition = source:find(delimiter, i, true)
+    if delimiterPosition then
+      positions[#positions + 1] = delimiterPosition
+      i = delimiterPosition + 1
+    end
+  until not delimiterPosition
+  -- No need for indentation, while no delimiter has been found
+  if #positions < 2 then
+    return source
+  end
 
-	-- calculate indentation
-	local linetodepth = getindentlevel(source,indenttable)
+  -- calculate indentation
+  local linetodepth = getindentlevel(source,indenttable)
 
-	-- Concatenate string with right indentation
-	local indented = {}
-	for  position=1, #positions do
-		-- Extract source code line
-		local offset = positions[position]
-		-- Get the interval between two positions
-		local rawline
-		if positions[position + 1] then
-			rawline = source:sub(offset + delimiterLength, positions[position + 1] -1)
-		else
-			-- From current position to end of line
-			rawline = source:sub(offset + delimiterLength)
-		end
+  -- Concatenate string with right indentation
+  local indented = {}
+  for  position=1, #positions do
+    -- Extract source code line
+    local offset = positions[position]
+    -- Get the interval between two positions
+    local rawline
+    if positions[position + 1] then
+      rawline = source:sub(offset + delimiterLength, positions[position + 1] -1)
+    else
+      -- From current position to end of line
+      rawline = source:sub(offset + delimiterLength)
+    end
 
-		-- Trim white spaces
-		local indentcount = linetodepth[position]
-		if not indentcount then
-			indented[#indented+1] = rawline
-		else
-			local line = trim(rawline)
-			-- Append right indentation
-			-- Indent only when there is code on the line
-			if line:len() > 0 then
-				-- Compute next real depth related offset
-				-- As is offset is pointing a white space before first statement
-				-- of block,
-				-- We will work with parent node depth
-				indented[#indented+1] = tabulation( indentcount )
-				-- Append timmed source code
-				indented[#indented+1] = line
-			end
-		end
-		-- Append carriage return
-		-- While on last character append carriage return only if at end of
-		-- original source
-		local endofline = source:sub(source:len()-delimiterLength, source:len())
-		if position < #positions or endofline == delimiter then
-			indented[#indented+1] = delimiter
-		end
-	end
+    -- Trim white spaces
+    local indentcount = linetodepth[position]
+    if not indentcount then
+      indented[#indented+1] = rawline
+    else
+      local line = trim(rawline)
+      -- Append right indentation
+      -- Indent only when there is code on the line
+      if line:len() > 0 then
+        -- Compute next real depth related offset
+        -- As is offset is pointing a white space before first statement
+        -- of block,
+        -- We will work with parent node depth
+        indented[#indented+1] = tabulation( indentcount )
+        -- Append timmed source code
+        indented[#indented+1] = line
+      end
+    end
+    -- Append carriage return
+    -- While on last character append carriage return only if at end of
+    -- original source
+    local endofline = source:sub(source:len()-delimiterLength, source:len())
+    if position < #positions or endofline == delimiter then
+      indented[#indented+1] = delimiter
+    end
+  end
 
-	return table.concat(indented)
+  return table.concat(indented)
 end
 
 return M

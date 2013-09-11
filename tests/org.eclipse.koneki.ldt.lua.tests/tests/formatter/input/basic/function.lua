@@ -4,4 +4,3 @@
 function foo()
 print "foo"
 end
-return nil

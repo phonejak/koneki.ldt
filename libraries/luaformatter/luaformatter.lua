@@ -185,12 +185,19 @@ function walker.formatters.Invoke(node, parent)
 
   -- Indent, starting from second line
   if startline < lastline then
-    printformat("`Invoke [%d, %d]",startline, lastline)
     walker.indent(startline + 1, startindex, lastline, parent)
   end
 end
 
 function walker.formatters.Local(node)
+
+  -- Indent only when node spreads across several lines
+  local nodestart = walker.getfirstline(node, true)
+  local nodeend = walker.getlastline(node)
+  if nodestart >= nodeend then
+    return
+  end
+
   local lhs, exprs = unpack(node)
   if #exprs == 0 then
     -- Regular handling
@@ -207,6 +214,7 @@ function walker.formatters.Local(node)
     walker.indentexprlist(exprs, node)
   end
 end
+
 walker.formatters.Set = walker.formatters.Local
 
 function walker.formatters.Repeat(node)

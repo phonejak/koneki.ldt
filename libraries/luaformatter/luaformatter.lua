@@ -20,6 +20,10 @@ require 'metalua.package'
 local mlc = require 'metalua.compiler'.new()
 local math = require 'math'
 
+-- Remove me
+function printformat(str, ...)
+  return print(string.format(str, ...))
+end
 --
 -- Define AST walker
 --
@@ -63,12 +67,12 @@ end
 -- Comment adjusted first line and first offset of a node.
 --
 -- @return #int, #int
-function walker.getfirstline(node)
+function walker.getfirstline(node, ignorecomments)
   -- Consider preceding comments as part of current chunk
   -- WARNING: This is NOT the default in Metalua
   local first, offset
   local offsets = node.lineinfo
-  if offsets.first.comments then
+  if offsets.first.comments and not ignorecomments then
     first = offsets.first.comments.lineinfo.first.line
     offset = offsets.first.comments.lineinfo.first.offset
   else
@@ -176,11 +180,12 @@ end
 
 function walker.formatters.Invoke(node, parent)
   -- When invocation spreads across several lines
-  local startline, startindex = walker.getfirstline(node)
+  local startline, startindex = walker.getfirstline(node, true)
   local lastline = walker.getlastline(node)
 
   -- Indent, starting from second line
   if startline < lastline then
+    printformat("`Invoke [%d, %d]",startline, lastline)
     walker.indent(startline + 1, startindex, lastline, parent)
   end
 end

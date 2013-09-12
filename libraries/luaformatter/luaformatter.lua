@@ -20,10 +20,6 @@ require 'metalua.package'
 local mlc = require 'metalua.compiler'.new()
 local math = require 'math'
 
--- Remove me
-function printformat(str, ...)
-  return print(string.format(str, ...))
-end
 --
 -- Define AST walker
 --
@@ -114,9 +110,19 @@ end
 ---
 -- Indent all lines of a chunk.
 function walker.indentchunk(node, parent)
-  -- Get node positions
-  local endline = walker.getlastline(node[#node])
+
+  -- Get regular start
   local startline, startindex = walker.getfirstline(node[1])
+
+  -- Handle trailing comments as they were statements
+  local endline
+  local lastnode = node[#node]
+  if lastnode.lineinfo.last.comments then
+    endline = lastnode.lineinfo.last.comments.lineinfo.last.line
+  else
+    endline = lastnode.lineinfo.last.line
+  end
+
   walker.indent(startline, startindex, endline, parent)
 end
 

@@ -213,7 +213,7 @@ function walker.formatters.Local(node)
     -- Avoid problems and format functions later.
     -- Else way, indent LHS and expressions like a single chunk.
     local endline = walker.getlastline(exprs)
-    local startline, startindex = walker.getfirstline(lhs)
+    local startline, startindex = walker.getfirstline(lhs, true)
     walker.indent(startline, startindex, endline, node)
 
     -- In this chunk indent expressions one more.

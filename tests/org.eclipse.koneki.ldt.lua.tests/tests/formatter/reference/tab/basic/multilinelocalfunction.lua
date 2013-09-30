@@ -1,8 +1,7 @@
 ----
 -- function to process
 --
-local foo = function
-(
+local foo = function(
 	par, 
 	a, 
 	ram

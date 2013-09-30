@@ -5,5 +5,5 @@ while
 	true
 do
 	print
-	'hello'
+		'hello'
 end

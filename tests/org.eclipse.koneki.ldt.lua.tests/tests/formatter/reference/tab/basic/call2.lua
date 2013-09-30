@@ -1,5 +1,5 @@
 ---
 -- call to be process
 --
-print 
+print
 	"hello"

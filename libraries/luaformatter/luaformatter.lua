@@ -20,6 +20,10 @@ require 'metalua.package'
 local mlc = require 'metalua.compiler'.new()
 local math = require 'math'
 
+-- Remove me
+function printformat(str, ...)
+  return print(string.format(str, ...))
+end
 --
 -- Define AST walker
 --
@@ -59,6 +63,71 @@ function walker.stat.down(node, ...)
   end
 end
 
+--------------------------------------------------------------------------------
+-- Format walking utilities
+--------------------------------------------------------------------------------
+local function assignments(node)
+
+  -- Indent only when node spreads across several lines
+  local nodestart = walker.getfirstline(node, true)
+  local nodeend = walker.getlastline(node)
+  if nodestart >= nodeend then
+    return
+  end
+
+  -- Detect which kind of node we are working on
+  local isset = node.tag == 'Set'
+  local islocal = node.tag == 'Local'
+
+  -- Format it
+  local lhs, exprs = unpack(node)
+  if #exprs == 0 then
+    -- Regular `Local handling
+    walker.indentexprlist(lhs, node)
+  elseif exprs[1].tag ~= 'Function' then
+
+    -- Handle LHS indentation
+    if islocal then
+
+      -- Avoid problems and format functions later.
+      -- Else way, indent LHS and expressions like a single chunk.
+      local endline = walker.getlastline(exprs)
+      local startline, startindex = walker.getfirstline(lhs, true)
+      walker.indent(startline, startindex, endline, node)
+
+    end
+
+    -- In this chunk indent expressions one more.
+    walker.indentexprlist(exprs, node)
+  end
+end
+
+local function callable(node, parent, extractor)
+  -- When call spreads across several lines
+  local startline, startindex = walker.getfirstline(node, true)
+  local lastline = walker.getlastline(node)
+
+  -- Work on parameters
+  local firstparam, firstparamposition = extractor(node)
+  if firstparam then
+
+    -- Determine parameters first line
+    local paramstartline,paramstartindex = walker.getfirstline(firstparam, true)
+    if startline == paramstartline then
+      paramstartline = paramstartline + 1
+    end
+
+    -- Determine parameters last line
+    local lastparam = #node == firstparamposition and firstparam or node[#node]
+    local paramlastline = walker.getlastline(lastparam)    
+    walker.indent(paramstartline, paramstartindex, paramlastline, node)
+  end
+
+  -- Indent, starting from second line
+  if startline < lastline then
+    walker.indent(startline + 1, startindex, lastline, parent)
+  end
+end
 ---
 -- Comment adjusted first line and first offset of a node.
 --
@@ -104,7 +173,10 @@ function walker.indent(startline, startindex, endline, parent)
   walker.indentation[startline] = INDENT
 
   -- Restore indentation
-  walker.reference[endline+1] = walker.getfirstline(parent)
+  if not walker.reference[endline+1] then
+    -- Only when not performed by a higher node
+    walker.reference[endline+1] = walker.getfirstline(parent)
+  end
 end
 
 ---
@@ -128,9 +200,9 @@ end
 
 ---
 -- Indent all lines of an expression list.
-function walker.indentexprlist(node, parent)
+function walker.indentexprlist(node, parent, ignorecomments)
   local endline = walker.getlastline(node)
-  local startline, startindex = walker.getfirstline(node)
+  local startline, startindex = walker.getfirstline(node, ignorecomments)
   walker.indent(startline, startindex, endline, parent)
 end
 
@@ -155,6 +227,15 @@ end
 --------------------------------------------------------------------------------
 -- Statements formatters
 --------------------------------------------------------------------------------
+function walker.formatters.Call(node, parent)
+  return callable(node, parent, function(node)
+    local id, param = unpack(node)
+    -- "2" because fist param it at 2nd position in a `Call
+    return param, 2
+  end)
+end
+
+
 function walker.formatters.Forin(node)
   local ids, iterator, _ = unpack(node)
   walker.indentexprlist(ids, node)
@@ -185,43 +266,14 @@ function walker.formatters.If(node)
 end
 
 function walker.formatters.Invoke(node, parent)
-  -- When invocation spreads across several lines
-  local startline, startindex = walker.getfirstline(node, true)
-  local lastline = walker.getlastline(node)
-
-  -- Indent, starting from second line
-  if startline < lastline then
-    walker.indent(startline + 1, startindex, lastline, parent)
-  end
+  return callable(node, parent, function(node)
+    local id, str, param = unpack(node)
+    -- "3" because fist parameter it at 3rd position in an `Invoke
+    return param, 3
+  end)
 end
 
-function walker.formatters.Local(node)
-
-  -- Indent only when node spreads across several lines
-  local nodestart = walker.getfirstline(node, true)
-  local nodeend = walker.getlastline(node)
-  if nodestart >= nodeend then
-    return
-  end
-
-  local lhs, exprs = unpack(node)
-  if #exprs == 0 then
-    -- Regular handling
-    walker.indentexprlist(lhs, node)
-  elseif exprs[1].tag ~= 'Function' then
-
-    -- Avoid problems and format functions later.
-    -- Else way, indent LHS and expressions like a single chunk.
-    local endline = walker.getlastline(exprs)
-    local startline, startindex = walker.getfirstline(lhs, true)
-    walker.indent(startline, startindex, endline, node)
-
-    -- In this chunk indent expressions one more.
-    walker.indentexprlist(exprs, node)
-  end
-end
-
-walker.formatters.Set = walker.formatters.Local
+walker.formatters.Local = assignments
 
 function walker.formatters.Repeat(node)
   local _, expr = unpack(node)
@@ -233,6 +285,8 @@ function walker.formatters.Return(node, parent)
     walker.indentchunk(node, parent)
   end
 end
+
+walker.formatters.Set = assignments
 
 function walker.formatters.While(node)
   local expr, _ = unpack(node)

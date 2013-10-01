@@ -22,8 +22,7 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
@@ -47,12 +46,19 @@ import org.eclipse.dltk.core.ModelException;
 import org.eclipse.koneki.ldt.core.internal.Activator;
 import org.osgi.framework.Bundle;
 
+import com.naef.jnlua.LuaException;
+import com.naef.jnlua.LuaState;
+
 public final class LuaExecutionEnvironmentManager {
 
 	private static final String EXTENSION_POINT_ID = "org.eclipse.koneki.ldt.executionEnvironment"; //$NON-NLS-1$
 	private static final String ATTRIBUTE_ID = "id"; //$NON-NLS-1$
 	private static final String ATTRIBUTE_VERSION = "version"; //$NON-NLS-1$
 	private static final String ATTRIBUTE_RESOURCEDIRECTORY = "resourcedirectory"; //$NON-NLS-1$
+
+	private static final String MANIFEST_NAME = "package"; //$NON-NLS-1$
+	private static final String MANIFEST_VERSION = "version"; //$NON-NLS-1$
+	private static final String MANIFEST_TEMPLATES = "templates"; //$NON-NLS-1$
 
 	private static final String INSTALLATION_FOLDER = "ee"; //$NON-NLS-1$
 
@@ -148,44 +154,40 @@ public final class LuaExecutionEnvironmentManager {
 		return getLuaExecutionEnvironmentFromManifest(manifestString, new Path(executionEnvironmentDirectory.getPath()));
 	}
 
+	@SuppressWarnings("unchecked")
 	private static LuaExecutionEnvironment getLuaExecutionEnvironmentFromManifest(String manifestString, final IPath installDirectory)
 			throws CoreException {
-		/*
-		 * Match available package name
-		 */
-		Pattern namePattern = Pattern.compile("(?:^|\\s+)package\\s*=\\s*(?:[\"']|\\[*)([\\w.]+)"); //$NON-NLS-1$
-		String name = null;
-		Matcher matcher = namePattern.matcher(manifestString);
-		if (matcher.find() && matcher.groupCount() > 0) {
-			name = matcher.group(1);
+
+		// execute the manifest
+		LuaState luaState = new LuaState();
+		try {
+			luaState.load(manifestString, "Lua error:"); //$NON-NLS-1$
+			luaState.call(0, 0);
+		} catch (LuaException e) {
+			throwException("Error while loading the manifest", e, IStatus.ERROR); //$NON-NLS-1$
 		}
 
-		/*
-		 * Match available version
-		 */
-		String version = null;
-		namePattern = Pattern.compile("(?:^|\\s+)version\\s*=\\s*(?:[\"']|\\[*)([\\w.]+)"); //$NON-NLS-1$
-		matcher = namePattern.matcher(manifestString);
-		if (matcher.find() && matcher.groupCount() > 0) {
-			version = matcher.group(1);
-		}
+		// Retrieve field as global variables
+		luaState.getGlobal(MANIFEST_NAME);
+		String name = luaState.toString(-1);
 
-		/*
-		 * Match available templateBuildPathEntries
-		 */
-		String[] templateEntries = null;
-		namePattern = Pattern.compile("(?:^|\\s+)templateEntries\\s*=\\s*(?:[\"']|\\[*)([\\w,]+)"); //$NON-NLS-1$
-		matcher = namePattern.matcher(manifestString);
-		if (matcher.find() && matcher.groupCount() > 0) {
-			templateEntries = matcher.group(1).split(","); //$NON-NLS-1$
-		}
+		luaState.getGlobal(MANIFEST_VERSION);
+		String version = luaState.toString(-1);
 
 		// Create object representing a valid Execution Environment
 		if (name == null || version == null) {
 			throwException("Manifest from given file has no package name or version.", null, IStatus.ERROR); //$NON-NLS-1$
 		}
 
-		return new LuaExecutionEnvironment(name, version, installDirectory, templateEntries);
+		Map<String, Map<String, Object>> templates = null;
+		try {
+			luaState.getGlobal(MANIFEST_TEMPLATES);
+			templates = (Map<String, Map<String, Object>>) luaState.toJavaObject(-1, Map.class);
+		} catch (ClassCastException e) {
+			throwException("Unable to parse the templates attribute in the EE manifest", e, IStatus.ERROR); //$NON-NLS-1$
+		}
+
+		return new LuaExecutionEnvironment(name, version, templates, installDirectory);
 	}
 
 	private static LuaExecutionEnvironment getExecutionEnvironmentFromContribution(IConfigurationElement contribution) throws CoreException {

@@ -13,9 +13,11 @@ package org.eclipse.koneki.ldt.ui.wizards;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.commons.io.FileUtils;
 import org.eclipse.core.resources.IFile;
@@ -65,35 +67,40 @@ public class LuaProjectCreator extends ProjectCreator {
 	protected List<IBuildpathEntry> getDefaultBuildpathEntries() {
 		List<IBuildpathEntry> buildPath = new ArrayList<IBuildpathEntry>();
 
-		if (!luaProjectSettingPage.isExistingLocation()) {
-			LuaExecutionEnvironment luaExecutionEnvironment = luaProjectSettingPage.getExecutionEnvironment();
+		LuaExecutionEnvironment luaExecutionEnvironment = luaProjectSettingPage.getExecutionEnvironment();
+		if (!luaProjectSettingPage.isExistingLocation() && luaExecutionEnvironment != null) {
+			IPath path = LuaExecutionEnvironmentBuildpathUtil.getLuaExecutionEnvironmentContainerPath(luaExecutionEnvironment);
+			IBuildpathEntry newContainerEntry = DLTKCore.newContainerEntry(path);
+			buildPath.add(newContainerEntry);
 
-			// Selected environment add corresponding build Path
-			if (luaExecutionEnvironment != null) {
-				IPath path = LuaExecutionEnvironmentBuildpathUtil.getLuaExecutionEnvironmentContainerPath(luaExecutionEnvironment);
-				IBuildpathEntry newContainerEntry = DLTKCore.newContainerEntry(path);
-				buildPath.add(newContainerEntry);
-			}
-
-			if (luaProjectSettingPage.hasToCreateTemplate() && luaExecutionEnvironment != null) {
-				// add template buildpaths define in the EE
-				String[] templateBuildPathEntries = luaExecutionEnvironment.getTemplateBuildPathEntries();
-				if (templateBuildPathEntries != null) {
-					for (String entry : templateBuildPathEntries) {
-						final IFolder sourcefolder = getProject().getFolder(entry);
-						final IBuildpathEntry newSourceEntry = DLTKCore.newSourceEntry(sourcefolder.getFullPath());
+			if (luaProjectSettingPage.hasToCreateTemplate()) {
+				Map<String, Object> defaultTemplateInfo = luaExecutionEnvironment.getDefaultTemplateInfo();
+				if (defaultTemplateInfo != null && defaultTemplateInfo.get(LuaExecutionEnvironment.TEMPLATE_BUILDPATH) != null
+						&& luaExecutionEnvironment.getTemplatesPath() != null) {
+					@SuppressWarnings("unchecked")
+					Map<Double, String> templateBuildPathEntries = (Map<Double, String>) defaultTemplateInfo
+							.get(LuaExecutionEnvironment.TEMPLATE_BUILDPATH);
+					// add template buildpaths define in the EE
+					for (String entry : templateBuildPathEntries.values()) {
+						// handle the case of the project itself is the source path
+						IBuildpathEntry newSourceEntry;
+						if (entry.equals("/") || entry.equals(".") || entry.equals("./") || entry.equals("/.")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+							newSourceEntry = DLTKCore.newSourceEntry(getProject().getFullPath());
+						} else {
+							final IFolder sourcefolder = getProject().getFolder(entry);
+							newSourceEntry = DLTKCore.newSourceEntry(sourcefolder.getFullPath());
+						}
 						buildPath.add(newSourceEntry);
 					}
-				}
 
-			} else {
-				// add default source folder to build path
-				final IFolder sourcefolder = getProject().getFolder(LuaConstants.SOURCE_FOLDER);
-				final IBuildpathEntry newSourceEntry = DLTKCore.newSourceEntry(sourcefolder.getFullPath());
-				buildPath.add(newSourceEntry);
+				} else {
+					// add default source folder to build path
+					final IFolder sourcefolder = getProject().getFolder(LuaConstants.SOURCE_FOLDER);
+					final IBuildpathEntry newSourceEntry = DLTKCore.newSourceEntry(sourcefolder.getFullPath());
+					buildPath.add(newSourceEntry);
+				}
 			}
 		}
-
 		return buildPath;
 	}
 
@@ -124,15 +131,18 @@ public class LuaProjectCreator extends ProjectCreator {
 				boolean foundTemplate = false;
 
 				// Find template in Execution Environment
-				byte[] bytes = null;
 				final LuaExecutionEnvironment ee = luaProjectSettingPage.getExecutionEnvironment();
 				if (ee != null) {
-					final IPath templatePath = ee.getTemplatePath();
-					if (templatePath != null) {
-						File templateFile = templatePath.toFile();
+					final IPath templatesPath = ee.getTemplatesPath();
+					if (templatesPath != null) {
+						File templateFile = templatesPath.append(LuaExecutionEnvironment.DEFAULT_TEMPLATE).toFile();
 						if (templateFile.listFiles().length > 0) {
 							foundTemplate = true;
-							copyFiles(project, templateFile, ee);
+							try {
+								FileUtils.copyDirectory(templateFile, project.getLocation().toFile());
+							} catch (IOException e) {
+								Activator.logError(MessageFormat.format("Unable to copy {0} from EE {1}.", templateFile.toString(), ee), e); //$NON-NLS-1$
+							}
 						}
 					}
 				}
@@ -142,29 +152,28 @@ public class LuaProjectCreator extends ProjectCreator {
 					// find src folder
 					IFolder srcFolder = project.getFolder(LuaConstants.SOURCE_FOLDER);
 
-					// create main.lua
-					bytes = LuaConstants.MAIN_FILE_CONTENT.getBytes();
-					final IFile mainFile = srcFolder.getFile(LuaConstants.DEFAULT_MAIN_FILE);
-					mainFile.create(new ByteArrayInputStream(bytes), false, new SubProgressMonitor(monitor, 1));
-				}
-			}
-			monitor.done();
-		}
+					if (srcFolder != null) {
+						final IFile mainFile = srcFolder.getFile(LuaConstants.DEFAULT_MAIN_FILE);
+						InputStream mainContent = null;
 
-		private void copyFiles(final IProject project, final File templateFolder, final LuaExecutionEnvironment ee) throws CoreException {
-
-			File projectFile = project.getLocation().toFile();
-			for (final File templateFile : templateFolder.listFiles()) {
-				try {
-					if (templateFile.isDirectory()) {
-						FileUtils.copyDirectoryToDirectory(templateFile, projectFile);
-					} else {
-						FileUtils.copyFileToDirectory(templateFile, projectFile);
+						// try to find the legacy main.lua in the EE (used by legacy EE only)
+						if (ee.getOldTemplatesPath() != null) {
+							IPath mainPath = ee.getOldTemplatesPath().append(LuaConstants.DEFAULT_MAIN_FILE);
+							try {
+								FileUtils.copyFileToDirectory(mainPath.toFile(), srcFolder.getLocation().toFile());
+							} catch (IOException e) {
+								Activator.logError(MessageFormat.format("Unable to copy 'main.lua' from EE {0}.", ee), e); //$NON-NLS-1$
+							}
+						} else { // Otherwise, use the default one
+							mainContent = new ByteArrayInputStream(LuaConstants.MAIN_FILE_CONTENT.getBytes());
+							mainFile.create(mainContent, false, new SubProgressMonitor(monitor, 1));
+						}
 					}
-				} catch (IOException e) {
-					Activator.logError(MessageFormat.format("Unable to copy {0} from EE {1}.", templateFile.toString(), ee), e); //$NON-NLS-1$
 				}
 			}
+			// refreshing the folder
+			project.refreshLocal(IProject.DEPTH_INFINITE, new SubProgressMonitor(monitor, 1));
+			monitor.done();
 		}
 	}
 

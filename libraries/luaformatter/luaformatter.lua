@@ -218,9 +218,22 @@ function walker.formatters.String(node)
 end
 
 function walker.formatters.Table(node, parent)
-  if #node > 0 then
-    -- Will work when BUG_ECLIPSE 414787 will be fixed
-    walker.indentchunk(node, parent)
+
+  -- Format only inner values across several lines
+  local firstline, firstindex = walker.getfirstline(node,true)
+  local lastline = walker.getlastline(node)
+  if #node > 0 or firstline < lastline then
+
+    -- Determine first line to format
+    local firstnode = unpack(node)
+    local childfirstline, childfirstindex = walker.getfirstline(firstnode)
+
+    -- Determine last line to format
+    local lastnode = #node == 1 and firstnode or node[ #node ]
+    local childlastline = walker.getlastline(lastnode)
+
+    -- Actual formating
+    walker.indent(childfirstline, childfirstindex, childlastline, node)
   end
 end
 

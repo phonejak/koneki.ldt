@@ -11,56 +11,37 @@
 
 --------------------------------------------------------------------------------
 -- Uses Metalua capabilities to indent code and provide source code offset
--- semantic depth
+-- semantic depth.
 --
 -- @module luaformatter
 --------------------------------------------------------------------------------
 local M = {}
 require 'metalua.package'
-local mlc = require 'metalua.compiler'.new()
 local math = require 'math'
+local mlc  = require 'metalua.compiler'.new()
 
--- Remove me
-function printformat(str, ...)
-  return print(string.format(str, ...))
-end
 --
 -- Define AST walker
 --
 local walker = {
   block = {},
-  expr  = {},
-  stat  = {},
-  indenttable = true,
-  source = "",
-  formatters = {},
   -- Indentations line number
   indentation = {},
+  indenttable = true,
   -- Key:   Line number to indent back.
   -- Value: Previous line number, it has the indentation depth wanted.
-  reference = {}
+  reference = {},
+  source = ""
 }
 
 local INDENT = true
 
-function walker.block.down(node, parent, ...)
+function walker.block.down(node, parent)
   -- Ignore empty node
   if #node == 0 or not parent then
     return
   end
   walker.indentchunk(node, parent)
-end
-
-function walker.expr.down(node, ...)
-  if walker.formatters[node.tag] then
-    walker.formatters[node.tag](node, ...)
-  end
-end
-
-function walker.stat.down(node, ...)
-  if walker.formatters[node.tag] then
-    walker.formatters[node.tag](node, ...)
-  end
 end
 
 --------------------------------------------------------------------------------
@@ -209,7 +190,7 @@ end
 --------------------------------------------------------------------------------
 -- Expressions formatters
 --------------------------------------------------------------------------------
-function walker.formatters.String(node)
+function walker.String(node)
   local firstline, _ = walker.getfirstline(node)
   local lastline = walker.getlastline(node)
   for line=firstline+1, lastline do
@@ -217,7 +198,11 @@ function walker.formatters.String(node)
   end
 end
 
-function walker.formatters.Table(node, parent)
+function walker.Table(node, parent)
+
+  if not walker.indenttable then
+    return
+  end
 
   -- Format only inner values across several lines
   local firstline, firstindex = walker.getfirstline(node,true)
@@ -240,7 +225,7 @@ end
 --------------------------------------------------------------------------------
 -- Statements formatters
 --------------------------------------------------------------------------------
-function walker.formatters.Call(node, parent)
+function walker.Call(node, parent)
   return callable(node, parent, function(node)
     local id, param = unpack(node)
     -- "2" because fist param it at 2nd position in a `Call
@@ -249,13 +234,13 @@ function walker.formatters.Call(node, parent)
 end
 
 
-function walker.formatters.Forin(node)
+function walker.Forin(node)
   local ids, iterator, _ = unpack(node)
   walker.indentexprlist(ids, node)
   walker.indentexprlist(iterator, node)
 end
 
-function walker.formatters.Fornum(node)
+function walker.Fornum(node)
   -- Format from variable name to last expressions
   local var, init, limit, range = unpack(node)
   local startline, startindex   = walker.getfirstline(var)
@@ -265,12 +250,12 @@ function walker.formatters.Fornum(node)
   walker.indent(startline, startindex, walker.getlastline(lastexpr), node)
 end
 
-function walker.formatters.Function(node)
+function walker.Function(node)
   local params, chunk = unpack(node)
   walker.indentexprlist(params, node)
 end
 
-function walker.formatters.If(node)
+function walker.If(node)
   -- Indent only conditions, chunks are already taken care of.
   local nodesize = #node
   for conditionposition=1, nodesize-(nodesize%2), 2 do
@@ -278,7 +263,7 @@ function walker.formatters.If(node)
   end
 end
 
-function walker.formatters.Invoke(node, parent)
+function walker.Invoke(node, parent)
   return callable(node, parent, function(node)
     local id, str, param = unpack(node)
     -- "3" because fist parameter it at 3rd position in an `Invoke
@@ -286,22 +271,22 @@ function walker.formatters.Invoke(node, parent)
   end)
 end
 
-walker.formatters.Local = assignments
+walker.Local = assignments
 
-function walker.formatters.Repeat(node)
+function walker.Repeat(node)
   local _, expr = unpack(node)
   walker.indentexprlist(expr, node)
 end
 
-function walker.formatters.Return(node, parent)
+function walker.Return(node, parent)
   if #node > 0 then
     walker.indentchunk(node, parent)
   end
 end
 
-walker.formatters.Set = assignments
+walker.Set = assignments
 
-function walker.formatters.While(node)
+function walker.While(node)
   local expr, _ = unpack(node)
   walker.indentexprlist(expr, node)
 end

@@ -14,10 +14,13 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 
+@Deprecated
 public interface IProjectSourceVisitor {
+	@Deprecated
 	public abstract void processFile(final IPath absolutePath, final IPath relativePath, final String charset, final IProgressMonitor monitor)
 			throws CoreException;
 
+	@Deprecated
 	public abstract void processDirectory(final IPath absolutePath, final IPath relativePath, final IProgressMonitor monitor) throws CoreException;
 
 }

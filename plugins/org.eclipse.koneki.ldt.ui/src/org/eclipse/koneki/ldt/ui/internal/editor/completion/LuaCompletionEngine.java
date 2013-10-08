@@ -80,6 +80,19 @@ public class LuaCompletionEngine extends ScriptCompletionEngine {
 			if (member != null)
 				createMemberProposal(member, cursorPosition - start.length(), cursorPosition);
 		}
+
+		// Add others files globals
+		// TODO Add preference toggle here
+		// ----------------------------------------
+		List<Definition> externalglobalvars = LuaASTUtils.getExternalGlobalVarsDefinition(sourceModule, start);
+
+		// for each global var, get the corresponding model element and create the proposal
+		for (Definition definition : externalglobalvars) {
+			IMember member = LuaASTModelUtils.getIMember(definition.getModule(), definition.getItem());
+			if (member != null)
+				createMemberProposal(member, cursorPosition - start.length(), cursorPosition, false, 25);
+		}
+
 	}
 
 	private void addKeywords(String start, int cursorPosition) {
@@ -290,6 +303,10 @@ public class LuaCompletionEngine extends ScriptCompletionEngine {
 	}
 
 	private void createMemberProposal(IMember member, int startIndex, int endIndex, boolean invocation) {
+		createMemberProposal(member, startIndex, endIndex, invocation, 50);
+	}
+
+	private void createMemberProposal(IMember member, int startIndex, int endIndex, boolean invocation, int relevance) {
 		try {
 			CompletionProposal proposal = null;
 			if (member == null) {
@@ -331,7 +348,7 @@ public class LuaCompletionEngine extends ScriptCompletionEngine {
 			proposal.setName(member.getElementName());
 			proposal.setCompletion(member.getElementName());
 			proposal.setReplaceRange(startIndex, endIndex);
-			proposal.setRelevance(2);
+			proposal.setRelevance(relevance);
 			this.requestor.accept(proposal);
 
 		} catch (ModelException e) {

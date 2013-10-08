@@ -12,14 +12,21 @@ package org.eclipse.koneki.ldt.core.internal.ast.models;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.dltk.ast.ASTNode;
 import org.eclipse.dltk.ast.ASTVisitor;
+import org.eclipse.dltk.core.IScriptFolder;
 import org.eclipse.dltk.core.ISourceModule;
+import org.eclipse.koneki.ldt.core.IProjectSourceVisitor2;
 import org.eclipse.koneki.ldt.core.LuaUtils;
+import org.eclipse.koneki.ldt.core.LuaUtils.ProjectFragmentFilter;
 import org.eclipse.koneki.ldt.core.internal.Activator;
 import org.eclipse.koneki.ldt.core.internal.ast.models.api.ExprTypeRef;
 import org.eclipse.koneki.ldt.core.internal.ast.models.api.ExternalTypeRef;
@@ -446,7 +453,7 @@ public final class LuaASTUtils {
 		return null;
 	}
 
-	public static List<Definition> getAllGlobalVarsDefinition(ISourceModule sourceModule, String start) {
+	public static List<Definition> getAllGlobalVarsDefinition(final ISourceModule sourceModule, final String start) {
 		final List<Definition> definitions = new ArrayList<Definition>();
 
 		// global vars defined preloaded module.
@@ -477,6 +484,42 @@ public final class LuaASTUtils {
 			}
 		}
 
+		return definitions;
+	}
+
+	public static List<Definition> getExternalGlobalVarsDefinition(final ISourceModule originalSourceModule, final String start) {
+		final List<Definition> definitions = new ArrayList<Definition>();
+
+		IProjectSourceVisitor2 visitor = new IProjectSourceVisitor2() {
+
+			@Override
+			public void processFile(ISourceModule sourceModule, IProgressMonitor monitor) throws CoreException {
+				if (sourceModule != null && !sourceModule.equals(originalSourceModule)) {
+					LuaSourceRoot currentluaSourceRoot = LuaASTModelUtils.getLuaSourceRoot(sourceModule);
+
+					if (currentluaSourceRoot != null) {
+						for (Item globalvar : currentluaSourceRoot.getFileapi().getGlobalvars().values()) {
+							if (start == null || start.isEmpty() || globalvar.getName().toLowerCase().startsWith(start.toLowerCase())) {
+								definitions.add(new Definition(sourceModule, globalvar));
+							}
+						}
+					}
+				}
+
+			}
+
+			@Override
+			public void processDirectory(IScriptFolder sourceModule, IProgressMonitor monitor) throws CoreException {
+				// nothing to do
+			}
+		};
+
+		try {
+			LuaUtils.visitSourceFiles(originalSourceModule.getScriptProject(), EnumSet.of(ProjectFragmentFilter.DEPENDENT_PROJECT), visitor,
+					new NullProgressMonitor());
+		} catch (CoreException e) {
+			Activator.logError("Unable to get external global for auto-complete", e); //$NON-NLS-1$
+		}
 		return definitions;
 	}
 

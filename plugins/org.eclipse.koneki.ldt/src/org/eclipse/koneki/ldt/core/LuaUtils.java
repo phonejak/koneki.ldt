@@ -407,6 +407,7 @@ public final class LuaUtils {
 		}
 	}
 
+	@SuppressWarnings("deprecation")
 	private static void visitSourceFiles(final IParent parent, final IProjectSourceVisitor visitor, final IProgressMonitor monitor,
 			final IPath currentPath) throws CoreException {
 
@@ -417,6 +418,10 @@ public final class LuaUtils {
 		for (int i = 0; i < children.length && !monitor.isCanceled(); i++) {
 			final IModelElement modelElement = children[i];
 			if (modelElement instanceof ISourceModule) {
+
+				if (visitor instanceof IProjectSourceVisitor2) {
+					((IProjectSourceVisitor2) visitor).processFile((ISourceModule) modelElement, subMonitor);
+				}
 
 				/*
 				 * Support local module
@@ -434,8 +439,12 @@ public final class LuaUtils {
 				final IScriptFolder innerSourceFolder = (IScriptFolder) modelElement;
 				// Do not notify interface for Source folders
 				if (!innerSourceFolder.isRootFolder()) {
-					IPath absolutePath = getAbsolutePathFromModelElement(modelElement);
 
+					if (visitor instanceof IProjectSourceVisitor2) {
+						((IProjectSourceVisitor2) visitor).processDirectory(innerSourceFolder, subMonitor);
+					}
+
+					IPath absolutePath = getAbsolutePathFromModelElement(modelElement);
 					final IPath newPath = currentPath.append(innerSourceFolder.getElementName());
 					visitor.processDirectory(absolutePath, newPath, monitor);
 					visitSourceFiles(innerSourceFolder, visitor, subMonitor.newChild(1), newPath);

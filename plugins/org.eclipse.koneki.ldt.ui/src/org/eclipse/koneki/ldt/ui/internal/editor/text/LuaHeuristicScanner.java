@@ -19,6 +19,13 @@ import org.eclipse.jface.text.IRegion;
 import org.eclipse.jface.text.ITypedRegion;
 import org.eclipse.jface.text.TextUtilities;
 import org.eclipse.jface.text.TypedRegion;
+import org.eclipse.koneki.ldt.core.internal.ast.models.api.Item;
+import org.eclipse.koneki.ldt.core.internal.ast.models.api.UnkownItem;
+import org.eclipse.koneki.ldt.core.internal.ast.models.file.Call;
+import org.eclipse.koneki.ldt.core.internal.ast.models.file.Identifier;
+import org.eclipse.koneki.ldt.core.internal.ast.models.file.Index;
+import org.eclipse.koneki.ldt.core.internal.ast.models.file.Invoke;
+import org.eclipse.koneki.ldt.core.internal.ast.models.file.LuaExpression;
 
 /**
  * Utility methods for heuristic based Lua manipulations in an incomplete Lua source file.
@@ -48,6 +55,7 @@ public class LuaHeuristicScanner implements LuaSymbols {
 	private static final char RPAREN = ')';
 	private static final char SEMICOLON = ';';
 	private static final char COLON = ':';
+	private static final char DOT = '.';
 	private static final char COMMA = ',';
 	private static final char LBRACKET = '[';
 	private static final char RBRACKET = ']';
@@ -314,6 +322,10 @@ public class LuaHeuristicScanner implements LuaSymbols {
 			return TOKEN_MINUS;
 		case SHARP:
 			return TOKEN_SHARP;
+		case DOT:
+			return TOKEN_DOT;
+		case COLON:
+			return TOKEN_COLON;
 		default:
 			break;
 		}
@@ -399,6 +411,8 @@ public class LuaHeuristicScanner implements LuaSymbols {
 			return TOKEN_MINUS;
 		case SHARP:
 			return TOKEN_SHARP;
+		case DOT:
+			return TOKEN_DOT;
 		default:
 			break;
 		}
@@ -771,5 +785,154 @@ public class LuaHeuristicScanner implements LuaSymbols {
 	private boolean contains(IRegion region, int position) {
 		int offset = region.getOffset();
 		return offset <= position && position < offset + region.getLength();
+	}
+
+	/**
+	 * try to guess if cursor is in an expression
+	 * 
+	 * @throws BadLocationException
+	 */
+	public LuaExpression guessLuaExpression(int start) {
+		try {
+
+			// find begin of expression
+			// ----------------------------------
+			int position = start - 1;
+			boolean stop = false;
+			do {
+				int previousToken = previousToken(position, UNBOUND);
+
+				// ignore all token between parentheses.
+				if (previousToken == TOKEN_RPAREN) {
+					do {
+						previousToken = previousToken(getPosition(), UNBOUND);
+					} while (previousToken != TOKEN_LPAREN && previousToken != TOKEN_EOF);
+					position = getPosition();
+				} else {
+					// stop if it's not an identifier a dot or colon
+					if (previousToken == TOKEN_EOF || (previousToken != TOKEN_IDENT && previousToken != TOKEN_DOT && previousToken != TOKEN_COLON))
+						stop = true;
+					else
+						position = getPosition();
+				}
+			} while (!stop);
+
+			// parse expression
+			// ----------------------------------
+			int nextToken = nextToken(position, start);
+
+			// 1 - first token must be an identifier
+			if (nextToken != TOKEN_IDENT)
+				return null;
+			String itemname = fDocument.get(position, getPosition() - position).trim();
+			Item item = new UnkownItem();
+			item.setName(itemname);
+			Identifier identifier = new Identifier();
+			identifier.setDefinition(item);
+			identifier.setStart(position);
+			identifier.setEnd(getPosition());
+
+			// 2 - next token should be expression (index, call, invoke)
+			stop = false;
+			position = getPosition();
+			LuaExpression exp = identifier;
+			do {
+				nextToken = nextToken(position, start);
+				switch (nextToken) {
+				case TOKEN_EOF:
+					stop = true;
+					break;
+				case TOKEN_DOT:
+					// manage index
+					position = getPosition();
+					nextToken = nextToken(getPosition(), start);
+
+					// next token should be an identifier or EOF for incomplete index
+					String indexfieldname;
+					if (nextToken == TOKEN_EOF) {
+						indexfieldname = ""; //$NON-NLS-1$
+					} else if (nextToken == TOKEN_IDENT) {
+						indexfieldname = fDocument.get(position, getPosition() - position).trim();
+					} else {
+						// if it's not an identifier or a EOF, we do not manage this case
+						return null;
+					}
+
+					// create index
+					Index index = new Index();
+					index.setLeft(exp);
+					index.setRight(indexfieldname);
+					if (nextToken == TOKEN_EOF)
+						index.setIncomplete(true); // no identifier after the '.' this is an incomplete Index
+
+					// update loop variable
+					exp = index;
+					position = getPosition();
+					break;
+				case TOKEN_COLON:
+					// manage invoke
+					position = getPosition();
+
+					// next token should be an identifier or EOF for incomplete invocation
+					nextToken = nextToken(getPosition(), start);
+					String invokefunctionname;
+					if (nextToken == TOKEN_EOF) {
+						invokefunctionname = ""; //$NON-NLS-1$
+					} else if (nextToken == TOKEN_IDENT) {
+						invokefunctionname = fDocument.get(position, getPosition() - position).trim();
+					} else {
+						// if it's not an identifier or a EOF, we do not manage this case
+						return null;
+					}
+					// create Invoke
+					Invoke invoke = new Invoke();
+					invoke.setRecord(exp);
+					invoke.setFunctionName(invokefunctionname);
+
+					// consume the full invocation ( left parent until right parent)
+					nextToken = nextToken(getPosition(), start);
+					if (nextToken == TOKEN_LPAREN) {
+						do {
+							nextToken = nextToken(getPosition(), UNBOUND);
+						} while (nextToken != TOKEN_RPAREN && nextToken != TOKEN_EOF);
+					} else if (nextToken != TOKEN_EOF) {
+						return null; // invalid invocation
+					}
+
+					if (nextToken == TOKEN_EOF)
+						invoke.setIncomplete(true); // no right parentheses so this is an incomplete invoke
+
+					// update loop variable
+					exp = invoke;
+					position = getPosition();
+					break;
+				case TOKEN_LPAREN:
+					// manage call
+					position = getPosition();
+					// consume the full invocation ( left parent until right parent)
+					nextToken = nextToken(getPosition(), start);
+					do {
+						nextToken = nextToken(getPosition(), UNBOUND);
+					} while (nextToken != TOKEN_RPAREN && nextToken != TOKEN_EOF);
+
+					// create Invoke
+					Call call = new Call();
+					call.setFunction(exp);
+					if (nextToken == TOKEN_EOF)
+						call.setIncomplete(true); // no right parentheses so this is an incomplete invoke
+
+					// update loop variable
+					exp = call;
+					position = getPosition();
+					break;
+				default:
+					return null;
+				}
+			} while (!stop);
+
+			return exp;
+		} catch (BadLocationException e) {
+		}
+		return null;
 	}
 }

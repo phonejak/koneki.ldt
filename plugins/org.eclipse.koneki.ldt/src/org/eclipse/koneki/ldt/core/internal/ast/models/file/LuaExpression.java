@@ -14,4 +14,13 @@ import org.eclipse.koneki.ldt.core.internal.ast.models.common.LuaASTNode;
 
 public abstract class LuaExpression extends LuaASTNode {
 
+	private boolean incomplete;
+
+	public boolean isIncomplete() {
+		return incomplete;
+	}
+
+	public void setIncomplete(boolean incomplete) {
+		this.incomplete = incomplete;
+	}
 }

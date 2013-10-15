@@ -20,7 +20,7 @@ import org.eclipse.jface.text.ITypedRegion;
 import org.eclipse.jface.text.TextUtilities;
 import org.eclipse.jface.text.TypedRegion;
 import org.eclipse.koneki.ldt.core.internal.ast.models.api.Item;
-import org.eclipse.koneki.ldt.core.internal.ast.models.api.UnkownItem;
+import org.eclipse.koneki.ldt.core.internal.ast.models.api.UnknownItem;
 import org.eclipse.koneki.ldt.core.internal.ast.models.file.Call;
 import org.eclipse.koneki.ldt.core.internal.ast.models.file.Identifier;
 import org.eclipse.koneki.ldt.core.internal.ast.models.file.Index;
@@ -799,18 +799,19 @@ public class LuaHeuristicScanner implements LuaSymbols {
 			// ----------------------------------
 			int position = start - 1;
 			boolean stop = false;
+			int previousToken = 0;
 			do {
-				int previousToken = previousToken(position, UNBOUND);
+				int currenttoken = previousToken(position, UNBOUND);
 
 				// ignore all token between parentheses.
-				if (previousToken == TOKEN_RPAREN) {
+				if ((previousToken == TOKEN_DOT || currenttoken == TOKEN_COLON) && currenttoken == TOKEN_RPAREN) {
 					do {
 						previousToken = previousToken(getPosition(), UNBOUND);
 					} while (previousToken != TOKEN_LPAREN && previousToken != TOKEN_EOF);
 					position = getPosition();
 				} else {
 					// stop if it's not an identifier a dot or colon
-					if (previousToken == TOKEN_EOF || (previousToken != TOKEN_IDENT && previousToken != TOKEN_DOT && previousToken != TOKEN_COLON))
+					if (currenttoken == TOKEN_EOF || (currenttoken != TOKEN_IDENT && currenttoken != TOKEN_DOT && currenttoken != TOKEN_COLON))
 						stop = true;
 					else
 						position = getPosition();
@@ -825,7 +826,7 @@ public class LuaHeuristicScanner implements LuaSymbols {
 			if (nextToken != TOKEN_IDENT)
 				return null;
 			String itemname = fDocument.get(position, getPosition() - position).trim();
-			Item item = new UnkownItem();
+			Item item = new UnknownItem();
 			item.setName(itemname);
 			Identifier identifier = new Identifier();
 			identifier.setDefinition(item);

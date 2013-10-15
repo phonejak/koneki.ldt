@@ -34,7 +34,7 @@ import org.eclipse.koneki.ldt.core.internal.ast.models.api.RecordTypeDef;
 import org.eclipse.koneki.ldt.core.internal.ast.models.api.Return;
 import org.eclipse.koneki.ldt.core.internal.ast.models.api.TypeDef;
 import org.eclipse.koneki.ldt.core.internal.ast.models.api.TypeRef;
-import org.eclipse.koneki.ldt.core.internal.ast.models.api.UnkownItem;
+import org.eclipse.koneki.ldt.core.internal.ast.models.api.UnknownItem;
 import org.eclipse.koneki.ldt.core.internal.ast.models.common.LuaASTNode;
 import org.eclipse.koneki.ldt.core.internal.ast.models.common.LuaSourceRoot;
 import org.eclipse.koneki.ldt.core.internal.ast.models.file.Block;
@@ -413,7 +413,7 @@ public final class LuaASTUtils {
 			Identifier identifier = (Identifier) luaExpression;
 			if (identifier.getDefinition() != null) {
 				Item definition = identifier.getDefinition();
-				if (definition instanceof UnkownItem) {
+				if (definition instanceof UnknownItem) {
 					// if we don't know the definition try to guess it
 					final String identifiername = definition.getName();
 					final LuaSourceRoot luaSourceRoot = LuaASTModelUtils.getLuaSourceRoot(sourceModule);
@@ -424,7 +424,11 @@ public final class LuaASTUtils {
 						return new Definition(sourceModule, localvarItem);
 					}
 					// if not found, try to find global
-					return LuaASTUtils.getGlobalVarDefinition(sourceModule, identifiername);
+					Definition globalVarDefinition = LuaASTUtils.getGlobalVarDefinition(sourceModule, identifiername);
+					if (globalVarDefinition != null)
+						return globalVarDefinition;
+
+					return null;
 				}
 				if (LuaASTUtils.isUnresolvedGlobal(definition)) {
 					// in this case we have a unknown global var definition.
